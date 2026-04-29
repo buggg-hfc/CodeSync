@@ -17,7 +17,6 @@ def sample_profile():
         port=22,
         username="testuser",
         auth_type="password",
-        keepalive_interval=60,
     )
 
 

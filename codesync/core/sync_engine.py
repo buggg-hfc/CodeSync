@@ -72,7 +72,8 @@ class SyncEngine:
 
         # 4. Compute diff
         diff = self._compute_diff(remote_files, local_files, config.sync_mode,
-                                  skip_delete=skipped_remote_keys)
+                                  skip_delete=skipped_remote_keys,
+                                  delete_removed_files=config.delete_removed_files)
         summary.conflicts = len(diff.conflicts)
 
         total = len(diff.to_download) + len(diff.to_delete_local)
@@ -163,6 +164,7 @@ class SyncEngine:
         local: dict[str, FileInfo],
         sync_mode: str,
         skip_delete: set[str] | None = None,
+        delete_removed_files: bool = True,
     ) -> SyncDiff:
         diff = SyncDiff()
         for rel, rinfo in remote.items():
@@ -181,7 +183,7 @@ class SyncEngine:
                 elif remote_newer or size_changed:
                     diff.to_download.append(rel)
 
-        if sync_mode == "server_to_local":
+        if sync_mode == "server_to_local" and delete_removed_files:
             for rel in local:
                 # Only delete if the file is truly absent on the server —
                 # files skipped due to exclusion or size limit are left untouched.

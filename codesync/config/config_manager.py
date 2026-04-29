@@ -34,7 +34,7 @@ def _profile_to_dict(p: ServerProfile) -> dict:
     return {
         "id": p.id, "name": p.name, "hostname": p.hostname, "port": p.port,
         "username": p.username, "auth_type": p.auth_type, "key_path": p.key_path,
-        "keepalive_interval": p.keepalive_interval, "enabled": p.enabled,
+        "enabled": p.enabled,
     }
 
 
@@ -43,7 +43,6 @@ def _profile_from_dict(d: dict) -> ServerProfile:
         id=d.get("id", ""), name=d.get("name", ""), hostname=d.get("hostname", ""),
         port=d.get("port", 22), username=d.get("username", ""),
         auth_type=d.get("auth_type", "password"), key_path=d.get("key_path", ""),
-        keepalive_interval=d.get("keepalive_interval", 60),
         enabled=d.get("enabled", True),
     )
 
@@ -54,7 +53,8 @@ def _sync_config_to_dict(c: SyncConfig) -> dict:
         "local_path": c.local_path, "remote_path": c.remote_path,
         "sync_mode": c.sync_mode, "triggers": [_trigger_to_dict(t) for t in c.triggers],
         "exclusion_patterns": c.exclusion_patterns, "max_file_size_mb": c.max_file_size_mb,
-        "line_ending": c.line_ending, "enabled": c.enabled,
+        "line_ending": c.line_ending, "delete_removed_files": c.delete_removed_files,
+        "enabled": c.enabled,
     }
 
 
@@ -85,6 +85,7 @@ def _sync_config_from_dict(d: dict) -> SyncConfig:
         exclusion_patterns=d.get("exclusion_patterns", []),
         max_file_size_mb=d.get("max_file_size_mb", 0),
         line_ending=d.get("line_ending", "keep"),
+        delete_removed_files=d.get("delete_removed_files", True),
         enabled=d.get("enabled", True),
     )
 
@@ -113,6 +114,7 @@ class ConfigManager:
             start_minimized=data.get("start_minimized", False),
             show_notifications=data.get("show_notifications", True),
             log_level=data.get("log_level", "INFO"),
+            font_size=data.get("font_size", 14),
         )
         return self._settings
 
@@ -128,6 +130,7 @@ class ConfigManager:
             "start_minimized": self._settings.start_minimized,
             "show_notifications": self._settings.show_notifications,
             "log_level": self._settings.log_level,
+            "font_size": self._settings.font_size,
             "profiles": [_profile_to_dict(p) for p in self._settings.profiles],
             "sync_configs": [_sync_config_to_dict(c) for c in self._settings.sync_configs],
         }

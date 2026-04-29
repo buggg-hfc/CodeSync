@@ -4,10 +4,9 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QComboBox, QSpinBox,
-    QCheckBox, QVBoxLayout, QFileDialog, QWidget,
+    QVBoxLayout, QFileDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QColor
 
 from codesync.config.models import ServerProfile
 from codesync.config.config_manager import ConfigManager
@@ -52,101 +51,79 @@ class ServerDialog(QDialog):
         if self._editing:
             self._populate()
         else:
-            self._auth_changed(0)  # default: show password section (index 0 = 密码)
+            self._auth_changed(0)  # default: password
 
     # ── UI ─────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
 
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self._form = QFormLayout()
+        self._form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("例：开发服务器")
-        form.addRow(_req("名称"), self._name_edit)
+        self._form.addRow(_req("名称"), self._name_edit)
 
         self._host_edit = QLineEdit()
         self._host_edit.setPlaceholderText("192.168.1.100 或 example.com")
-        form.addRow(_req("主机地址"), self._host_edit)
+        self._form.addRow(_req("主机地址"), self._host_edit)
 
         self._port_spin = QSpinBox()
         self._port_spin.setRange(1, 65535)
         self._port_spin.setValue(22)
-        form.addRow("端口：", self._port_spin)
+        self._form.addRow("端口：", self._port_spin)
 
         self._user_edit = QLineEdit()
-        form.addRow(_req("用户名"), self._user_edit)
+        self._form.addRow(_req("用户名"), self._user_edit)
 
         self._auth_combo = QComboBox()
         self._auth_combo.addItems(["密码", "SSH 密钥"])
         self._auth_combo.currentIndexChanged.connect(self._auth_changed)
-        form.addRow("认证方式：", self._auth_combo)
+        self._form.addRow("认证方式：", self._auth_combo)
 
-        # ── Password section ───────────────────────────────────────────────
-        self._pw_section = QWidget()
-        pw_form = QFormLayout(self._pw_section)
-        pw_form.setContentsMargins(0, 0, 0, 0)
+        # ── Password row ───────────────────────────────────────────────────
         self._pw_edit = QLineEdit()
         self._pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self._pw_edit.setPlaceholderText("SSH 登录密码")
-        pw_form.addRow("密码：", self._pw_edit)
-        form.addRow(self._pw_section)
+        self._pw_row = self._form.rowCount()
+        self._form.addRow("密码：", self._pw_edit)
 
-        # ── Key section ────────────────────────────────────────────────────
-        self._key_section = QWidget()
-        key_form = QFormLayout(self._key_section)
-        key_form.setContentsMargins(0, 0, 0, 0)
-
-        key_row = QWidget()
-        kl = QHBoxLayout(key_row)
-        kl.setContentsMargins(0, 0, 0, 0)
+        # ── Key file row ───────────────────────────────────────────────────
+        key_row_widget = QHBoxLayout()
+        key_row_widget.setContentsMargins(0, 0, 0, 0)
         self._key_edit = QLineEdit()
         self._key_edit.setPlaceholderText(str(Path.home() / ".ssh" / "id_ed25519"))
-        kl.addWidget(self._key_edit)
+        key_row_widget.addWidget(self._key_edit)
         browse_btn = QPushButton("浏览…")
         browse_btn.setFixedWidth(70)
         browse_btn.clicked.connect(self._browse_key)
-        kl.addWidget(browse_btn)
-        key_form.addRow("私钥文件：", key_row)
+        key_row_widget.addWidget(browse_btn)
+        self._key_row = self._form.rowCount()
+        self._form.addRow("私钥文件：", key_row_widget)
 
+        # ── Passphrase row ─────────────────────────────────────────────────
         self._passphrase_edit = QLineEdit()
         self._passphrase_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self._passphrase_edit.setPlaceholderText("（如有密钥密码请填写）")
-        key_form.addRow("密钥密码：", self._passphrase_edit)
-        form.addRow(self._key_section)
+        self._passphrase_row = self._form.rowCount()
+        self._form.addRow("密钥密码：", self._passphrase_edit)
 
-        # ── Keepalive ──────────────────────────────────────────────────────
-        keepalive_row = QWidget()
-        kl2 = QHBoxLayout(keepalive_row)
-        kl2.setContentsMargins(0, 0, 0, 0)
-        self._keepalive_check = QCheckBox("启用保持活跃消息")
-        self._keepalive_check.setChecked(True)
-        self._keepalive_check.toggled.connect(self._keepalive_toggled)
-        kl2.addWidget(self._keepalive_check)
-        self._keepalive_spin = QSpinBox()
-        self._keepalive_spin.setRange(10, 3600)
-        self._keepalive_spin.setValue(60)
-        self._keepalive_spin.setSuffix(" 秒")
-        kl2.addWidget(self._keepalive_spin)
-        kl2.addStretch()
-        form.addRow("Keepalive：", keepalive_row)
+        root.addLayout(self._form)
 
-        root.addLayout(form)
+        # ── Bottom row: [测试连接] [status...] [确认] [取消] ──────────────
+        bottom_row = QHBoxLayout()
 
-        # ── Test connection ────────────────────────────────────────────────
-        test_row = QHBoxLayout()
         self._test_btn = QPushButton("测试连接")
-        self._test_btn.setFixedWidth(100)
+        self._test_btn.setFixedWidth(90)
         self._test_btn.clicked.connect(self._test_connection)
-        test_row.addWidget(self._test_btn)
+        bottom_row.addWidget(self._test_btn)
+
         self._conn_status = QLabel("")
         self._conn_status.setFixedHeight(24)
-        test_row.addWidget(self._conn_status, stretch=1)
-        root.addLayout(test_row)
+        bottom_row.addWidget(self._conn_status, stretch=1)
 
-        # ── Buttons ────────────────────────────────────────────────────────
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -154,17 +131,17 @@ class ServerDialog(QDialog):
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        bottom_row.addWidget(buttons)
+
+        root.addLayout(bottom_row)
 
     # ── Slots ──────────────────────────────────────────────────────────────
 
     def _auth_changed(self, index: int) -> None:
         is_pw = index == 0
-        self._pw_section.setVisible(is_pw)
-        self._key_section.setVisible(not is_pw)
-
-    def _keepalive_toggled(self, checked: bool) -> None:
-        self._keepalive_spin.setEnabled(checked)
+        self._form.setRowVisible(self._pw_row, is_pw)
+        self._form.setRowVisible(self._key_row, not is_pw)
+        self._form.setRowVisible(self._passphrase_row, not is_pw)
 
     def _browse_key(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -225,7 +202,6 @@ class ServerDialog(QDialog):
             edit.setStyleSheet("")
 
         auth = "password" if self._auth_combo.currentIndex() == 0 else "key"
-        keepalive = self._keepalive_spin.value() if self._keepalive_check.isChecked() else 0
         return ServerProfile(
             id=self._profile.id if self._profile else "",
             name=name,
@@ -234,7 +210,6 @@ class ServerDialog(QDialog):
             username=user,
             auth_type=auth,
             key_path=self._key_edit.text().strip(),
-            keepalive_interval=keepalive,
             enabled=self._profile.enabled if self._profile else True,
         )
 
@@ -260,12 +235,10 @@ class ServerDialog(QDialog):
         self._host_edit.setText(p.hostname)
         self._port_spin.setValue(p.port)
         self._user_edit.setText(p.username)
-        self._auth_combo.setCurrentIndex(0 if p.auth_type == "password" else 1)
+        auth_index = 0 if p.auth_type == "password" else 1
+        self._auth_combo.setCurrentIndex(auth_index)
         self._key_edit.setText(p.key_path)
-        checked = p.keepalive_interval > 0
-        self._keepalive_check.setChecked(checked)
-        self._keepalive_spin.setValue(p.keepalive_interval if checked else 60)
-        self._keepalive_spin.setEnabled(checked)
+        self._auth_changed(auth_index)
 
         if p.auth_type == "password":
             self._pw_edit.setText(self._config_manager.load_credential(p.id, "password"))

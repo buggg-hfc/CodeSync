@@ -23,6 +23,7 @@ class SyncConfig:
     exclusion_patterns: list[str] = field(default_factory=list)
     max_file_size_mb: int = 0   # 0 = no limit; files larger than this are skipped
     line_ending: str = "keep"   # "keep" | "crlf"
+    delete_removed_files: bool = True   # delete local files when removed from server
     enabled: bool = True
 
     def __post_init__(self):
@@ -41,7 +42,6 @@ class ServerProfile:
     username: str = ""
     auth_type: str = "password"  # "password" | "key"
     key_path: str = ""
-    keepalive_interval: int = 60  # seconds, 0 = disabled
     enabled: bool = True
 
     def __post_init__(self):
@@ -57,3 +57,4 @@ class AppSettings:
     start_minimized: bool = False
     show_notifications: bool = True
     log_level: str = "INFO"
+    font_size: int = 14

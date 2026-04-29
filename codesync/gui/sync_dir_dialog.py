@@ -33,6 +33,7 @@ class SyncDirDialog(QDialog):
         self._sync_config = sync_config
         self._editing = sync_config is not None
 
+        self.saved_config_id: str = ""
         self.setWindowTitle("编辑同步目录" if self._editing else "新建同步目录")
         self.setMinimumWidth(540)
         self.setMinimumHeight(520)
@@ -74,6 +75,10 @@ class SyncDirDialog(QDialog):
 
         self._crlf_check = QCheckBox("下载后转换换行符为 CRLF")
         form.addRow("换行符：", self._crlf_check)
+
+        self._delete_removed_check = QCheckBox("服务器上删除的文件，本地同步删除")
+        self._delete_removed_check.setChecked(True)
+        form.addRow("删除策略：", self._delete_removed_check)
 
         # Max file size
         size_row = QWidget()
@@ -219,8 +224,10 @@ class SyncDirDialog(QDialog):
             exclusion_patterns=self._excl_editor.patterns(),
             max_file_size_mb=self._size_spin.value() if self._size_check.isChecked() else 0,
             line_ending="crlf" if self._crlf_check.isChecked() else "keep",
+            delete_removed_files=self._delete_removed_check.isChecked(),
             enabled=self._sync_config.enabled if self._sync_config else True,
         )
+        self.saved_config_id = config.id
         self._config_manager.save_sync_config(config)
         self.accept()
 
@@ -237,6 +244,7 @@ class SyncDirDialog(QDialog):
         if c.sync_mode in sync_modes:
             self._sync_mode_combo.setCurrentIndex(sync_modes.index(c.sync_mode))
         self._crlf_check.setChecked(c.line_ending == "crlf")
+        self._delete_removed_check.setChecked(c.delete_removed_files)
         if c.max_file_size_mb > 0:
             self._size_check.setChecked(True)
             self._size_spin.setValue(c.max_file_size_mb)

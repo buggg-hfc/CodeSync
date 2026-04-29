@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QFormLayout, QCheckBox, QComboBox, QPushButton,
-    QGroupBox, QVBoxLayout, QLabel,
+    QGroupBox, QVBoxLayout, QSpinBox,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 from codesync.config.config_manager import ConfigManager
 
@@ -33,6 +34,19 @@ class SettingsTab(QWidget):
 
         layout.addWidget(behaviour_group)
 
+        # Appearance group
+        appearance_group = QGroupBox("外观设置")
+        app_form = QFormLayout(appearance_group)
+        app_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self._font_size_spin = QSpinBox()
+        self._font_size_spin.setRange(8, 24)
+        self._font_size_spin.setValue(14)
+        self._font_size_spin.setSuffix(" pt")
+        app_form.addRow("界面字体大小：", self._font_size_spin)
+
+        layout.addWidget(appearance_group)
+
         # Logging group
         log_group = QGroupBox("日志设置")
         log_form = QFormLayout(log_group)
@@ -55,12 +69,21 @@ class SettingsTab(QWidget):
         s = self._config_manager.settings
         self._start_min_check.setChecked(s.start_minimized)
         self._notify_check.setChecked(s.show_notifications)
+        self._font_size_spin.setValue(s.font_size)
         idx = ["DEBUG", "INFO", "WARNING", "ERROR"].index(s.log_level.upper())
         self._log_level_combo.setCurrentIndex(max(0, idx))
 
     def _save(self) -> None:
+        from PyQt6.QtWidgets import QApplication
         s = self._config_manager.settings
         s.start_minimized = self._start_min_check.isChecked()
         s.show_notifications = self._notify_check.isChecked()
         s.log_level = self._log_level_combo.currentText()
+        s.font_size = self._font_size_spin.value()
         self._config_manager.save()
+
+        app = QApplication.instance()
+        if app:
+            font = app.font()
+            font.setPointSize(s.font_size)
+            app.setFont(font)
