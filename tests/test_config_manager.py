@@ -15,7 +15,7 @@ def test_save_and_load_roundtrip(tmp_config, sample_profile, sample_sync_config)
     assert p.id == sample_profile.id
     assert p.name == sample_profile.name
     assert p.hostname == sample_profile.hostname
-    assert p.keepalive_interval == 60
+    assert p.port == 22
 
     assert len(settings.sync_configs) == 1
     c = settings.sync_configs[0]
@@ -70,12 +70,11 @@ def test_update_profile(tmp_config, sample_profile):
         hostname="10.0.0.1",
         port=2222,
         username="root",
-        keepalive_interval=30,
     )
     tmp_config.update_profile(updated)
     p = tmp_config.get_profile(sample_profile.id)
     assert p.name == "Updated"
-    assert p.keepalive_interval == 30
+    assert p.port == 2222
 
 
 def test_atomic_write_no_tmp(tmp_config, sample_profile):

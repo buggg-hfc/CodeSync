@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -10,7 +10,6 @@ from PyQt6.QtCore import Qt, QTimer
 from codesync.config.config_manager import ConfigManager
 from codesync.config.models import ServerProfile, SyncConfig
 from codesync.core.sync_engine import SyncSummary
-from codesync.gui.widgets.status_badge import StatusBadge
 from codesync.workers.sync_worker import SyncWorker
 
 
@@ -38,8 +37,6 @@ class SyncTab(QWidget):
         # Status group
         status_group = QGroupBox("当前配置")
         sg = QHBoxLayout(status_group)
-        self._badge = StatusBadge("disconnected")
-        sg.addWidget(self._badge)
         self._profile_label = QLabel("未选择配置")
         self._profile_label.setStyleSheet("font-weight: bold;")
         sg.addWidget(self._profile_label)
@@ -106,7 +103,6 @@ class SyncTab(QWidget):
             self._dir_label.setText(f"{config.remote_path} → {config.local_path}")
         else:
             self._dir_label.setText("")
-        self._badge.set_state("disconnected")
         self._sync_btn.setEnabled(profile is not None and config is not None)
         self._summary_label.setText("")
         self._current_file_label.setText("")
@@ -121,7 +117,6 @@ class SyncTab(QWidget):
         if self._worker and self._worker.isRunning():
             return
 
-        self._badge.set_state("syncing")
         self._sync_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
         self._progress_bar.setRange(0, 0)   # indeterminate spinner
@@ -146,11 +141,10 @@ class SyncTab(QWidget):
         if total > 0:
             self._progress_bar.setRange(0, total)
             self._progress_bar.setValue(done)
-            self._progress_bar.setFormat(f"%v / %m 个文件")
+            self._progress_bar.setFormat("%v / %m 个文件")
         self._current_file_label.setText(filename)
 
     def _on_finished(self, summary: SyncSummary) -> None:
-        self._badge.set_state("connected")
         self._sync_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
         self._current_file_label.setText("")
@@ -177,7 +171,6 @@ class SyncTab(QWidget):
         self._update_next_sync_label()
 
     def _on_error(self, msg: str) -> None:
-        self._badge.set_state("error")
         self._sync_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
         self._reset_progress("错误")

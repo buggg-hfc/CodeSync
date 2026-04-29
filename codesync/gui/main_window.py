@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize, QPoint
-from PyQt6.QtGui import QCloseEvent, QIcon, QColor
+from PyQt6.QtGui import QCloseEvent, QColor, QFont
 
 from codesync.config.config_manager import ConfigManager
 from codesync.config.models import ServerProfile, SyncConfig
@@ -17,7 +17,7 @@ from codesync.gui.server_dialog import ServerDialog
 from codesync.gui.sync_dir_dialog import SyncDirDialog
 from codesync.utils.constants import APP_NAME, APP_VERSION
 
-# Item type stored in UserRole + 1
+# Item type stored in UserRole
 _ROLE_TYPE = Qt.ItemDataRole.UserRole
 _ROLE_ID   = Qt.ItemDataRole.UserRole + 1
 
@@ -29,19 +29,66 @@ _STATUS_COLORS = {
     "disabled": "#95a5a6",
 }
 
+_TREE_STYLESHEET = """
+QTreeWidget {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    outline: none;
+}
+QTreeWidget::item {
+    height: 26px;
+    padding-left: 2px;
+    border-radius: 4px;
+}
+QTreeWidget::item:hover {
+    background: #e9ecef;
+}
+QTreeWidget::item:selected {
+    background: #0d6efd;
+    color: white;
+}
+QTreeWidget::branch {
+    background: transparent;
+}
+"""
 
-def _dot(color: str) -> str:
-    return f"<span style='color:{color}'>●</span>"
+_BTN_PRIMARY = """
+QPushButton {
+    background: #0d6efd;
+    color: white;
+    border-radius: 5px;
+    padding: 5px 10px;
+    border: none;
+    font-size: 12px;
+}
+QPushButton:hover { background: #0b5ed7; }
+QPushButton:disabled { background: #adb5bd; color: #dee2e6; }
+"""
+
+_BTN_SECONDARY = """
+QPushButton {
+    background: #6c757d;
+    color: white;
+    border-radius: 5px;
+    padding: 5px 10px;
+    border: none;
+    font-size: 12px;
+}
+QPushButton:hover { background: #5c636a; }
+QPushButton:disabled { background: #adb5bd; color: #dee2e6; }
+"""
 
 
 class MainWindow(QMainWindow):
     closed = pyqtSignal()
+    config_saved = pyqtSignal(str)  # emits config_id after a sync config is saved/updated
 
     def __init__(self, config_manager: ConfigManager):
         super().__init__()
         self._config_manager = config_manager
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
-        self.setMinimumSize(QSize(860, 580))
+        self.setMinimumSize(QSize(900, 600))
         self._build_ui()
         self._refresh_tree()
 
@@ -58,26 +105,35 @@ class MainWindow(QMainWindow):
 
         # ── Left: server tree ──────────────────────────────────────────────
         left = QWidget()
-        left.setFixedWidth(220)
+        left.setFixedWidth(240)
         ll = QVBoxLayout(left)
-        ll.setContentsMargins(0, 0, 4, 0)
-        ll.addWidget(QLabel("服务器配置"))
+        ll.setContentsMargins(0, 0, 6, 0)
+        ll.setSpacing(6)
+
+        header_lbl = QLabel("服务器配置")
+        header_lbl.setStyleSheet("font-weight: bold; font-size: 13px; padding: 2px 0 4px 2px;")
+        ll.addWidget(header_lbl)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
         self._tree.setColumnCount(1)
+        self._tree.setStyleSheet(_TREE_STYLESHEET)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
         self._tree.currentItemChanged.connect(self._on_selection_changed)
+        self._tree.setIndentation(16)
         ll.addWidget(self._tree)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(6)
         self._add_server_btn = QPushButton("＋ 服务器")
+        self._add_server_btn.setStyleSheet(_BTN_PRIMARY)
         self._add_server_btn.clicked.connect(self._add_server)
         btn_row.addWidget(self._add_server_btn)
 
         self._add_dir_btn = QPushButton("＋ 目录")
+        self._add_dir_btn.setStyleSheet(_BTN_SECONDARY)
         self._add_dir_btn.setEnabled(False)
         self._add_dir_btn.clicked.connect(self._add_sync_dir)
         self._add_dir_btn.setToolTip("先选中一台服务器，再添加同步目录")
@@ -99,7 +155,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._settings_tab, "设置")
         rl.addWidget(self._tabs)
         splitter.addWidget(right)
-        splitter.setSizes([220, 640])
+        splitter.setSizes([240, 660])
 
     # ── Tree helpers ───────────────────────────────────────────────────────
 
@@ -111,8 +167,10 @@ class MainWindow(QMainWindow):
                 expanded.add(item.data(0, _ROLE_ID))
 
         self._tree.clear()
+        bold_font = QFont()
+        bold_font.setBold(True)
         for profile in self._config_manager.settings.profiles:
-            p_item = self._make_profile_item(profile)
+            p_item = self._make_profile_item(profile, bold_font)
             for cfg in self._config_manager.get_sync_configs_for_profile(profile.id):
                 c_item = self._make_syncdir_item(cfg)
                 p_item.addChild(c_item)
@@ -120,11 +178,13 @@ class MainWindow(QMainWindow):
             if profile.id in expanded or not expanded:
                 p_item.setExpanded(True)
 
-    def _make_profile_item(self, profile: ServerProfile) -> QTreeWidgetItem:
+    def _make_profile_item(self, profile: ServerProfile, bold_font: QFont | None = None) -> QTreeWidgetItem:
         dot = "●" if profile.enabled else "○"
         color = _STATUS_COLORS["enabled"] if profile.enabled else _STATUS_COLORS["disabled"]
-        item = QTreeWidgetItem([f"{dot} {profile.name}"])
+        item = QTreeWidgetItem([f"{dot}  {profile.name}"])
         item.setForeground(0, QColor(color))
+        if bold_font:
+            item.setFont(0, bold_font)
         item.setToolTip(0, f"{profile.hostname}:{profile.port}  ({profile.username})"
                            + ("" if profile.enabled else "  [已禁用]"))
         item.setData(0, _ROLE_TYPE, _TYPE_PROFILE)
@@ -134,7 +194,7 @@ class MainWindow(QMainWindow):
     def _make_syncdir_item(self, cfg: SyncConfig) -> QTreeWidgetItem:
         dot = "↔" if cfg.sync_mode == "bidirectional" else "→"
         enabled_dot = "●" if cfg.enabled else "○"
-        label = f"  {enabled_dot} {dot} {cfg.name or cfg.remote_path}"
+        label = f"{enabled_dot} {dot} {cfg.name or cfg.remote_path}"
         item = QTreeWidgetItem([label])
         color = _STATUS_COLORS["enabled"] if cfg.enabled else _STATUS_COLORS["disabled"]
         item.setForeground(0, QColor(color))
@@ -172,7 +232,6 @@ class MainWindow(QMainWindow):
         if item_type == _TYPE_PROFILE:
             profile_id = current.data(0, _ROLE_ID)
             self._add_dir_btn.setEnabled(True)
-            # Show first enabled sync dir of this profile in sync tab
             cfgs = self._config_manager.get_sync_configs_for_profile(profile_id)
             active_cfg = next((c for c in cfgs if c.enabled), cfgs[0] if cfgs else None)
             profile = self._config_manager.get_profile(profile_id)
@@ -256,10 +315,15 @@ class MainWindow(QMainWindow):
 
     def _toggle_profile_enabled(self, profile_id: str, enabled: bool) -> None:
         profile = self._config_manager.get_profile(profile_id)
-        if profile:
-            profile.enabled = enabled
-            self._config_manager.update_profile(profile)
-            self._refresh_tree()
+        if not profile:
+            return
+        profile.enabled = enabled
+        self._config_manager.update_profile(profile)
+        # Cascade to all sync configs under this profile
+        for cfg in self._config_manager.get_sync_configs_for_profile(profile_id):
+            cfg.enabled = enabled
+            self._config_manager.save_sync_config(cfg)
+        self._refresh_tree()
 
     # ── Sync dir CRUD ──────────────────────────────────────────────────────
 
@@ -273,6 +337,8 @@ class MainWindow(QMainWindow):
         if profile:
             dlg = SyncDirDialog(self._config_manager, profile, parent=self)
             if dlg.exec():
+                if dlg.saved_config_id:
+                    self.config_saved.emit(dlg.saved_config_id)
                 self._refresh_tree()
 
     def _edit_sync_dir(self, syncdir_id: str) -> None:
@@ -283,6 +349,8 @@ class MainWindow(QMainWindow):
         if profile:
             dlg = SyncDirDialog(self._config_manager, profile, sync_config=cfg, parent=self)
             if dlg.exec():
+                if dlg.saved_config_id:
+                    self.config_saved.emit(dlg.saved_config_id)
                 self._refresh_tree()
 
     def _delete_sync_dir(self, syncdir_id: str) -> None:

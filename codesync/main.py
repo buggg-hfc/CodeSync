@@ -4,10 +4,12 @@ import argparse
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QFont
 
 from codesync.utils.constants import APP_NAME
 from codesync.utils.logger import setup_logging, logger
 from codesync.config.config_manager import ConfigManager
+from codesync.config.models import SyncConfig
 from codesync.core import scheduler as sched
 from codesync.core.file_watcher import FileWatcher
 
@@ -25,6 +27,11 @@ def main() -> None:
     settings = config_manager.load()
     setup_logging(settings.log_level)
     logger.info("CodeSync starting up")
+
+    # Apply font size from settings
+    font = app.font()
+    font.setPointSize(settings.font_size)
+    app.setFont(font)
 
     from codesync.gui.main_window import MainWindow
     from codesync.gui.tray_icon import TrayIcon
@@ -53,6 +60,11 @@ def main() -> None:
     file_watcher = FileWatcher()
     _bridges = _start_auto_sync(config_manager, file_watcher, window)
 
+    # Re-register scheduler jobs whenever a sync config is added or edited
+    window.config_saved.connect(
+        lambda cid: _register_config_jobs(cid, config_manager, window, _bridges, file_watcher)
+    )
+
     start_minimized = args.minimized_to_tray or settings.start_minimized
     if not start_minimized:
         window.show()
@@ -67,6 +79,44 @@ def main() -> None:
 class _Bridge(QObject):
     """Thread-safe bridge: emit config_id from any thread, delivered on GUI thread."""
     triggered = pyqtSignal(str)
+
+
+def _register_config_jobs(config_id: str, config_manager: ConfigManager,
+                          window, bridges: list, file_watcher: FileWatcher) -> None:
+    """Register (or re-register) scheduler/watcher jobs for a single sync config."""
+    cfg = config_manager.get_sync_config(config_id)
+    if not cfg or not cfg.enabled:
+        return
+    profile = config_manager.get_profile(cfg.profile_id)
+    if not profile or not profile.enabled:
+        return
+
+    # Remove any existing jobs for this config before re-adding
+    sched.stop_jobs_for_config(cfg.id)
+    file_watcher.stop_watch(cfg.id)
+
+    bridge = _Bridge()
+    bridge.triggered.connect(window.trigger_sync_for_config)
+    bridges.append(bridge)
+
+    for i, trigger in enumerate(cfg.triggers):
+        job_id = f"sync_{cfg.id}_{i}"
+
+        if trigger.type == "interval":
+            def _cb(cid=cfg.id, b=bridge):
+                b.triggered.emit(cid)
+            sched.start_interval(job_id, trigger.interval_seconds, _cb)
+
+        elif trigger.type == "daily":
+            def _cb_daily(cid=cfg.id, b=bridge):
+                b.triggered.emit(cid)
+            sched.start_daily(job_id, trigger.daily_time, _cb_daily)
+
+        elif trigger.type == "watch":
+            def _on_change(path: str, cid=cfg.id, b=bridge):
+                b.triggered.emit(cid)
+            if cfg.local_path:
+                file_watcher.start_watch(cfg.id, cfg.local_path, _on_change)
 
 
 def _start_auto_sync(config_manager: ConfigManager, file_watcher: FileWatcher,

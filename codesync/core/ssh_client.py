@@ -48,11 +48,6 @@ class SSHClient:
             connect_kwargs["password"] = password
 
         client.connect(**connect_kwargs)
-        # Enable SSH keepalive to prevent connection drops on idle servers
-        if profile.keepalive_interval > 0:
-            transport = client.get_transport()
-            if transport:
-                transport.set_keepalive(profile.keepalive_interval)
         self._ssh = client
         self._sftp = client.open_sftp()
         self._connected = True
