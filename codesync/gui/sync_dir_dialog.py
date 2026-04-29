@@ -105,6 +105,7 @@ class SyncDirDialog(QDialog):
 
         self._trigger_list = QListWidget()
         self._trigger_list.setMaximumHeight(90)
+        self._trigger_list.itemDoubleClicked.connect(self._edit_trigger)
         tg.addWidget(self._trigger_list)
 
         trig_btn_row = QHBoxLayout()
@@ -140,7 +141,7 @@ class SyncDirDialog(QDialog):
     # ── Trigger management ─────────────────────────────────────────────────
 
     def _add_interval_trigger(self) -> None:
-        dlg = _IntervalDialog(self)
+        dlg = _IntervalDialog(parent=self)
         if dlg.exec():
             t = SyncTrigger(type="interval", interval_seconds=dlg.seconds())
             item = QListWidgetItem(f"间隔 {dlg.seconds()} 秒")
@@ -148,12 +149,29 @@ class SyncDirDialog(QDialog):
             self._trigger_list.addItem(item)
 
     def _add_daily_trigger(self) -> None:
-        dlg = _DailyDialog(self)
+        dlg = _DailyDialog(parent=self)
         if dlg.exec():
             t = SyncTrigger(type="daily", daily_time=dlg.time_str())
             item = QListWidgetItem(f"每日 {dlg.time_str()}")
             item.setData(Qt.ItemDataRole.UserRole, t)
             self._trigger_list.addItem(item)
+
+    def _edit_trigger(self, item: QListWidgetItem) -> None:
+        trigger = item.data(Qt.ItemDataRole.UserRole)
+        if not trigger:
+            return
+        if trigger.type == "interval":
+            dlg = _IntervalDialog(initial_seconds=trigger.interval_seconds, parent=self)
+            if dlg.exec():
+                new_trigger = SyncTrigger(type="interval", interval_seconds=dlg.seconds())
+                item.setData(Qt.ItemDataRole.UserRole, new_trigger)
+                item.setText(f"间隔 {dlg.seconds()} 秒")
+        elif trigger.type == "daily":
+            dlg = _DailyDialog(initial_time_str=trigger.daily_time, parent=self)
+            if dlg.exec():
+                new_trigger = SyncTrigger(type="daily", daily_time=dlg.time_str())
+                item.setData(Qt.ItemDataRole.UserRole, new_trigger)
+                item.setText(f"每日 {dlg.time_str()}")
 
     def _delete_trigger(self) -> None:
         row = self._trigger_list.currentRow()
@@ -268,13 +286,13 @@ class SyncDirDialog(QDialog):
 # ── Simple sub-dialogs for adding triggers ─────────────────────────────────────
 
 class _IntervalDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, initial_seconds: int | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("间隔触发")
         layout = QFormLayout(self)
         self._spin = QSpinBox()
         self._spin.setRange(10, 86400)
-        self._spin.setValue(DEFAULT_SYNC_INTERVAL)
+        self._spin.setValue(initial_seconds if initial_seconds is not None else DEFAULT_SYNC_INTERVAL)
         self._spin.setSuffix(" 秒")
         layout.addRow("同步间隔：", self._spin)
         buttons = QDialogButtonBox(
@@ -291,11 +309,19 @@ class _IntervalDialog(QDialog):
 
 
 class _DailyDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, initial_time_str: str | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("每日定时触发")
         layout = QFormLayout(self)
-        self._time_edit = QTimeEdit(QTime(2, 0))
+        self._time_edit = QTimeEdit()
+        if initial_time_str:
+            try:
+                h, m = map(int, initial_time_str.split(":"))
+                self._time_edit.setTime(QTime(h, m))
+            except (ValueError, AttributeError):
+                self._time_edit.setTime(QTime(2, 0))
+        else:
+            self._time_edit.setTime(QTime(2, 0))
         self._time_edit.setDisplayFormat("HH:mm")
         layout.addRow("执行时间：", self._time_edit)
         buttons = QDialogButtonBox(
