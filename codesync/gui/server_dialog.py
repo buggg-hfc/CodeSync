@@ -46,7 +46,8 @@ class ServerDialog(QDialog):
         self._test_thread: _TestThread | None = None
 
         self.setWindowTitle("编辑服务器" if self._editing else "新建服务器")
-        self.setMinimumWidth(480)
+        self.setFixedWidth(480)
+        self.setFixedHeight(300)
         self._build_ui()
         if self._editing:
             self._populate()
