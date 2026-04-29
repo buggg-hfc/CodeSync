@@ -1,6 +1,5 @@
 from __future__ import annotations
-import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -22,13 +21,13 @@ class SyncTab(QWidget):
         self._profile: ServerProfile | None = None
         self._config: SyncConfig | None = None
         self._worker: SyncWorker | None = None
-        self._last_sync_time: float | None = None
         self._build_ui()
 
-        # Countdown timer for next scheduled sync
+        # Updates "下次同步" every second
         self._countdown_timer = QTimer(self)
         self._countdown_timer.setInterval(1000)
-        self._countdown_timer.timeout.connect(self._update_countdown)
+        self._countdown_timer.timeout.connect(self._update_next_sync_label)
+        self._countdown_timer.start()
 
     # ── UI ─────────────────────────────────────────────────────────────────
 
@@ -37,19 +36,22 @@ class SyncTab(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Status group
-        status_group = QGroupBox("连接状态")
-        sg_layout = QHBoxLayout(status_group)
+        status_group = QGroupBox("当前配置")
+        sg = QHBoxLayout(status_group)
         self._badge = StatusBadge("disconnected")
-        sg_layout.addWidget(self._badge)
-        sg_layout.addStretch()
+        sg.addWidget(self._badge)
         self._profile_label = QLabel("未选择配置")
         self._profile_label.setStyleSheet("font-weight: bold;")
-        sg_layout.addWidget(self._profile_label)
+        sg.addWidget(self._profile_label)
+        sg.addStretch()
+        self._dir_label = QLabel("")
+        self._dir_label.setStyleSheet("color: #555; font-size: 11px;")
+        sg.addWidget(self._dir_label)
         layout.addWidget(status_group)
 
-        # Sync controls group
+        # Sync controls
         ctrl_group = QGroupBox("同步控制")
-        ctrl_layout = QVBoxLayout(ctrl_group)
+        ctrl = QVBoxLayout(ctrl_group)
 
         btn_row = QHBoxLayout()
         self._sync_btn = QPushButton("立即同步")
@@ -63,45 +65,53 @@ class SyncTab(QWidget):
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._stop_sync)
         btn_row.addWidget(self._stop_btn)
-        ctrl_layout.addLayout(btn_row)
+        ctrl.addLayout(btn_row)
 
         self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setRange(0, 1)
         self._progress_bar.setValue(0)
         self._progress_bar.setTextVisible(True)
-        self._progress_bar.setFormat("%v / %m 文件")
-        ctrl_layout.addWidget(self._progress_bar)
+        self._progress_bar.setFormat("就绪")
+        ctrl.addWidget(self._progress_bar)
 
         self._current_file_label = QLabel("")
         self._current_file_label.setStyleSheet("color: #555; font-size: 11px;")
         self._current_file_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        ctrl_layout.addWidget(self._current_file_label)
-
+        ctrl.addWidget(self._current_file_label)
         layout.addWidget(ctrl_group)
 
         # Info group
         info_group = QGroupBox("同步信息")
-        info_layout = QVBoxLayout(info_group)
+        info = QVBoxLayout(info_group)
         self._last_sync_label = QLabel("上次同步：—")
         self._next_sync_label = QLabel("下次同步：—")
         self._summary_label = QLabel("")
         self._summary_label.setWordWrap(True)
-        info_layout.addWidget(self._last_sync_label)
-        info_layout.addWidget(self._next_sync_label)
-        info_layout.addWidget(self._summary_label)
+        info.addWidget(self._last_sync_label)
+        info.addWidget(self._next_sync_label)
+        info.addWidget(self._summary_label)
         layout.addWidget(info_group)
 
     # ── Public interface ───────────────────────────────────────────────────
 
-    def set_profile(self, profile: ServerProfile | None) -> None:
+    def set_active(self, profile: ServerProfile | None, config: SyncConfig | None) -> None:
+        """Called when the user selects a profile/sync-dir in the tree."""
         self._profile = profile
-        self._config = self._config_manager.get_sync_config(profile.id) if profile else None
-        self._profile_label.setText(profile.name if profile else "未选择配置")
+        self._config = config
+        if profile:
+            self._profile_label.setText(f"{profile.name}  ({profile.hostname})")
+        else:
+            self._profile_label.setText("未选择配置")
+        if config:
+            self._dir_label.setText(f"{config.remote_path} → {config.local_path}")
+        else:
+            self._dir_label.setText("")
         self._badge.set_state("disconnected")
-        self._sync_btn.setEnabled(profile is not None)
+        self._sync_btn.setEnabled(profile is not None and config is not None)
         self._summary_label.setText("")
         self._current_file_label.setText("")
-        self._progress_bar.setValue(0)
+        self._reset_progress()
+        self._update_next_sync_label()
 
     # ── Sync control ───────────────────────────────────────────────────────
 
@@ -114,9 +124,9 @@ class SyncTab(QWidget):
         self._badge.set_state("syncing")
         self._sync_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setRange(0, 0)  # indeterminate until total known
-        self._current_file_label.setText("连接中…")
+        self._progress_bar.setRange(0, 0)   # indeterminate spinner
+        self._progress_bar.setFormat("连接中…")
+        self._current_file_label.setText("")
         self._summary_label.setText("")
 
         self._worker = SyncWorker(self._profile, self._config, self._config_manager)
@@ -136,38 +146,70 @@ class SyncTab(QWidget):
         if total > 0:
             self._progress_bar.setRange(0, total)
             self._progress_bar.setValue(done)
+            self._progress_bar.setFormat(f"%v / %m 个文件")
         self._current_file_label.setText(filename)
 
     def _on_finished(self, summary: SyncSummary) -> None:
         self._badge.set_state("connected")
         self._sync_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(100)
         self._current_file_label.setText("")
-        self._last_sync_time = summary.timestamp
+
         ts = datetime.fromtimestamp(summary.timestamp).strftime("%Y-%m-%d %H:%M:%S")
         self._last_sync_label.setText(f"上次同步：{ts}")
-        err_text = f"，{len(summary.errors)} 个错误" if summary.errors else ""
-        conflict_text = f"，{summary.conflicts} 个冲突" if summary.conflicts else ""
-        self._summary_label.setText(
-            f"同步完成：{summary.files_synced} 个文件已同步，"
-            f"{summary.files_deleted} 个已删除{err_text}{conflict_text}，"
-            f"耗时 {summary.duration_seconds:.1f}s"
-        )
+
+        if summary.files_synced == 0 and summary.files_deleted == 0 and not summary.errors:
+            self._progress_bar.setRange(0, 1)
+            self._progress_bar.setValue(1)
+            self._progress_bar.setFormat("已是最新，无需同步")
+            self._summary_label.setText(f"无变化，耗时 {summary.duration_seconds:.1f}s")
+        else:
+            self._progress_bar.setRange(0, 1)
+            self._progress_bar.setValue(1)
+            self._progress_bar.setFormat("同步完成")
+            err_text = f"，{len(summary.errors)} 个错误" if summary.errors else ""
+            conflict_text = f"，{summary.conflicts} 个冲突" if summary.conflicts else ""
+            self._summary_label.setText(
+                f"已同步 {summary.files_synced} 个文件，"
+                f"删除 {summary.files_deleted} 个{err_text}{conflict_text}，"
+                f"耗时 {summary.duration_seconds:.1f}s"
+            )
+        self._update_next_sync_label()
 
     def _on_error(self, msg: str) -> None:
         self._badge.set_state("error")
         self._sync_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(0)
+        self._reset_progress("错误")
         self._current_file_label.setText("")
         self._summary_label.setText(f"错误：{msg}")
 
-    def _update_countdown(self) -> None:
-        if not self._config or self._config.trigger != "interval":
+    # ── Next sync time ─────────────────────────────────────────────────────
+
+    def _update_next_sync_label(self) -> None:
+        if not self._config:
             self._next_sync_label.setText("下次同步：—")
             return
-        # placeholder — actual next-fire time would come from the scheduler
-        self._next_sync_label.setText("自动同步已启用")
+
+        has_auto = any(t.type in ("interval", "daily") for t in self._config.triggers)
+        if not has_auto:
+            self._next_sync_label.setText("下次同步：手动触发")
+            return
+
+        from codesync.core import scheduler as sched
+        next_times = sched.get_next_run_times_for_config(self._config.id)
+        if next_times:
+            earliest = min(next_times)
+            local_dt = earliest.astimezone().replace(tzinfo=None)
+            self._next_sync_label.setText(
+                f"下次同步：{local_dt.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+        else:
+            self._next_sync_label.setText("下次同步：自动同步已启用（待触发）")
+
+    # ── Helpers ────────────────────────────────────────────────────────────
+
+    def _reset_progress(self, label: str = "就绪") -> None:
+        self._progress_bar.setRange(0, 1)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setFormat(label)

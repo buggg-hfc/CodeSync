@@ -45,15 +45,26 @@ class TrayIcon(QSystemTrayIcon):
 
         menu.addSeparator()
 
-        # Per-profile quick sync actions
+        # Per sync-dir quick sync actions (grouped by server)
         profiles = self._config_manager.settings.profiles
         if profiles:
             sync_menu = menu.addMenu("立即同步")
             for profile in profiles:
-                action = QAction(profile.name, sync_menu)
-                pid = profile.id
-                action.triggered.connect(lambda checked, p=pid: self.sync_now_requested.emit(p))
-                sync_menu.addAction(action)
+                cfgs = self._config_manager.get_sync_configs_for_profile(profile.id)
+                if not cfgs:
+                    continue
+                if len(cfgs) == 1:
+                    cid = cfgs[0].id
+                    action = QAction(f"{profile.name} / {cfgs[0].name}", sync_menu)
+                    action.triggered.connect(lambda checked, c=cid: self.sync_now_requested.emit(c))
+                    sync_menu.addAction(action)
+                else:
+                    sub = sync_menu.addMenu(profile.name)
+                    for cfg in cfgs:
+                        cid = cfg.id
+                        action = QAction(cfg.name or cfg.remote_path, sub)
+                        action.triggered.connect(lambda checked, c=cid: self.sync_now_requested.emit(c))
+                        sub.addAction(action)
         menu.addSeparator()
 
         quit_action = QAction("退出", menu)
