@@ -56,18 +56,23 @@ class SyncEngine:
             logger.error("List remote failed: %s", e)
             return summary
 
-        # 2. Filter excluded files and oversized files
+        # 2. Filter excluded files and oversized files.
+        # Keep the full remote key set so we never delete local copies of files
+        # that were merely skipped (excluded or too large).
         max_bytes = config.max_file_size_mb * 1024 * 1024 if config.max_file_size_mb > 0 else 0
+        all_remote_keys = set(remote_files.keys())
         remote_files = {
             k: v for k, v in remote_files.items()
             if not excl.is_excluded(k) and (max_bytes == 0 or v.size <= max_bytes)
         }
+        skipped_remote_keys = all_remote_keys - set(remote_files.keys())
 
         # 3. Gather local file list
         local_files = self._list_local_files(local_base, excl)
 
         # 4. Compute diff
-        diff = self._compute_diff(remote_files, local_files, config.sync_mode)
+        diff = self._compute_diff(remote_files, local_files, config.sync_mode,
+                                  skip_delete=skipped_remote_keys)
         summary.conflicts = len(diff.conflicts)
 
         total = len(diff.to_download) + len(diff.to_delete_local)
@@ -157,6 +162,7 @@ class SyncEngine:
         remote: dict[str, FileInfo],
         local: dict[str, FileInfo],
         sync_mode: str,
+        skip_delete: set[str] | None = None,
     ) -> SyncDiff:
         diff = SyncDiff()
         for rel, rinfo in remote.items():
@@ -177,7 +183,9 @@ class SyncEngine:
 
         if sync_mode == "server_to_local":
             for rel in local:
-                if rel not in remote:
+                # Only delete if the file is truly absent on the server —
+                # files skipped due to exclusion or size limit are left untouched.
+                if rel not in remote and (skip_delete is None or rel not in skip_delete):
                     diff.to_delete_local.append(rel)
 
         return diff

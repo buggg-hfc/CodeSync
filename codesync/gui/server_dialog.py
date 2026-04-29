@@ -52,7 +52,7 @@ class ServerDialog(QDialog):
         if self._editing:
             self._populate()
         else:
-            self._auth_changed(1)  # default to password
+            self._auth_changed(0)  # default: show password section (index 0 = 密码)
 
     # ── UI ─────────────────────────────────────────────────────────────────
 

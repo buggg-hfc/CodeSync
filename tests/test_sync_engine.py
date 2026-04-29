@@ -107,6 +107,26 @@ def test_sync_respects_max_file_size(profile, sync_config):
     assert "small.py" in call_args[0]
 
 
+def test_oversized_local_file_not_deleted(profile, sync_config, tmp_path):
+    """Local copies of oversized remote files must not be deleted when max_file_size_mb is set."""
+    sync_config.max_file_size_mb = 1  # 1 MB limit
+    # Write a local "large" file
+    local_large = tmp_path / "model.pt"
+    local_large.write_bytes(b"x" * 100)
+
+    engine = SyncEngine()
+    mock_client = MagicMock()
+    # Remote has the file but it's 2 MB — will be filtered out by size
+    mock_client.list_remote_files.return_value = {
+        "model.pt": FileInfo(mtime=2000.0, size=2 * 1024 * 1024),
+    }
+    summary = engine.sync(profile, sync_config, mock_client)
+
+    # File must still exist locally and must not have been deleted
+    assert local_large.exists(), "Oversized remote file's local copy was incorrectly deleted"
+    assert summary.files_deleted == 0
+
+
 def test_crlf_conversion(tmp_path):
     f = tmp_path / "test.py"
     f.write_bytes(b"line1\nline2\n")
