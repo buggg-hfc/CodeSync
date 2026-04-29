@@ -1,6 +1,35 @@
 from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
+
+
+@dataclass
+class SyncTrigger:
+    type: str = "manual"        # "manual" | "interval" | "daily"
+    interval_seconds: int = 300
+    daily_time: str = "02:00"  # HH:MM for daily type
+
+
+@dataclass
+class SyncConfig:
+    profile_id: str
+    local_path: str    # actual sync target directory (parent/remote_name)
+    remote_path: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    sync_mode: str = "server_to_local"   # | "bidirectional"
+    triggers: list[SyncTrigger] = field(default_factory=list)
+    exclusion_patterns: list[str] = field(default_factory=list)
+    max_file_size_mb: int = 0   # 0 = no limit; files larger than this are skipped
+    line_ending: str = "keep"   # "keep" | "crlf"
+    enabled: bool = True
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = str(uuid.uuid4())
+        if not self.name and self.remote_path:
+            self.name = PurePosixPath(self.remote_path).name or self.remote_path
 
 
 @dataclass
@@ -10,9 +39,10 @@ class ServerProfile:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     port: int = 22
     username: str = ""
-    auth_type: str = "key"       # "password" | "key"
+    auth_type: str = "password"  # "password" | "key"
     key_path: str = ""
-    # Passwords and passphrases are stored in the OS keyring, not here.
+    keepalive_interval: int = 60  # seconds, 0 = disabled
+    enabled: bool = True
 
     def __post_init__(self):
         if not self.id:
@@ -20,21 +50,8 @@ class ServerProfile:
 
 
 @dataclass
-class SyncConfig:
-    profile_id: str
-    local_path: str
-    remote_path: str
-    sync_mode: str = "server_to_local"   # | "bidirectional"
-    trigger: str = "manual"              # | "interval" | "watch"
-    interval_seconds: int = 300
-    exclusion_patterns: list[str] = field(default_factory=list)
-    line_ending: str = "keep"            # "keep" | "crlf"
-    enabled: bool = True
-
-
-@dataclass
 class AppSettings:
-    version: int = 1
+    version: int = 2
     profiles: list[ServerProfile] = field(default_factory=list)
     sync_configs: list[SyncConfig] = field(default_factory=list)
     start_minimized: bool = False

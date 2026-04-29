@@ -56,8 +56,12 @@ class SyncEngine:
             logger.error("List remote failed: %s", e)
             return summary
 
-        # 2. Filter excluded files
-        remote_files = {k: v for k, v in remote_files.items() if not excl.is_excluded(k)}
+        # 2. Filter excluded files and oversized files
+        max_bytes = config.max_file_size_mb * 1024 * 1024 if config.max_file_size_mb > 0 else 0
+        remote_files = {
+            k: v for k, v in remote_files.items()
+            if not excl.is_excluded(k) and (max_bytes == 0 or v.size <= max_bytes)
+        }
 
         # 3. Gather local file list
         local_files = self._list_local_files(local_base, excl)

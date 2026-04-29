@@ -1,15 +1,11 @@
 import pytest
-import tempfile
-from pathlib import Path
-
-from codesync.config.models import ServerProfile, SyncConfig, AppSettings
+from codesync.config.models import ServerProfile, SyncConfig, SyncTrigger
 from codesync.config.config_manager import ConfigManager
 
 
 @pytest.fixture
 def tmp_config(tmp_path):
-    config_file = tmp_path / "config.json"
-    return ConfigManager(config_file=config_file)
+    return ConfigManager(config_file=tmp_path / "config.json")
 
 
 @pytest.fixture
@@ -20,19 +16,20 @@ def sample_profile():
         hostname="192.168.1.100",
         port=22,
         username="testuser",
-        auth_type="key",
-        key_path="/home/user/.ssh/id_ed25519",
+        auth_type="password",
+        keepalive_interval=60,
     )
 
 
 @pytest.fixture
 def sample_sync_config():
     return SyncConfig(
+        id="test-config-id",
         profile_id="test-profile-id",
-        local_path="/tmp/local",
+        name="project",
+        local_path="/tmp/local/project",
         remote_path="/var/www/project",
         sync_mode="server_to_local",
-        trigger="manual",
-        interval_seconds=300,
+        triggers=[SyncTrigger(type="interval", interval_seconds=300)],
         exclusion_patterns=[".git/", "*.pyc", "__pycache__/"],
     )

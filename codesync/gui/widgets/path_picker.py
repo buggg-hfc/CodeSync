@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QPushButton, QFileDialog
+from PyQt6.QtCore import pyqtSignal
 
 
 class PathPickerWidget(QWidget):
     """A line edit + browse button for choosing a local directory."""
+    path_changed = pyqtSignal(str)
 
     def __init__(self, placeholder: str = "选择本地目录…", parent=None):
         super().__init__(parent)
@@ -11,6 +13,7 @@ class PathPickerWidget(QWidget):
 
         self._edit = QLineEdit()
         self._edit.setPlaceholderText(placeholder)
+        self._edit.textChanged.connect(self.path_changed)
         layout.addWidget(self._edit)
 
         btn = QPushButton("浏览…")

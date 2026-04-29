@@ -1,21 +1,37 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget,
-    QListWidgetItem, QPushButton, QTabWidget, QMessageBox, QSplitter,
-    QLabel,
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QPushButton, QTabWidget, QMessageBox, QSplitter, QLabel,
+    QTreeWidget, QTreeWidgetItem, QMenu,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize, QPoint
+from PyQt6.QtGui import QCloseEvent, QIcon, QColor
 
 from codesync.config.config_manager import ConfigManager
-from codesync.config.models import ServerProfile
+from codesync.config.models import ServerProfile, SyncConfig
 from codesync.gui.sync_tab import SyncTab
 from codesync.gui.log_tab import LogTab
 from codesync.gui.settings_tab import SettingsTab
-from codesync.gui.profile_dialog import ProfileDialog
+from codesync.gui.server_dialog import ServerDialog
+from codesync.gui.sync_dir_dialog import SyncDirDialog
 from codesync.utils.constants import APP_NAME, APP_VERSION
-from codesync import core
+
+# Item type stored in UserRole + 1
+_ROLE_TYPE = Qt.ItemDataRole.UserRole
+_ROLE_ID   = Qt.ItemDataRole.UserRole + 1
+
+_TYPE_PROFILE  = "profile"
+_TYPE_SYNCDIR  = "syncdir"
+
+_STATUS_COLORS = {
+    "enabled":  "#27ae60",
+    "disabled": "#95a5a6",
+}
+
+
+def _dot(color: str) -> str:
+    return f"<span style='color:{color}'>●</span>"
 
 
 class MainWindow(QMainWindow):
@@ -25,11 +41,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._config_manager = config_manager
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
-        self.setMinimumSize(QSize(800, 560))
+        self.setMinimumSize(QSize(860, 580))
         self._build_ui()
-        self._refresh_profile_list()
+        self._refresh_tree()
 
-    # ── UI construction ────────────────────────────────────────────────────
+    # ── UI ─────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -40,127 +56,272 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         root.addWidget(splitter)
 
-        # Left panel — profile list
+        # ── Left: server tree ──────────────────────────────────────────────
         left = QWidget()
-        left.setFixedWidth(200)
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 4, 0)
+        left.setFixedWidth(220)
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 4, 0)
+        ll.addWidget(QLabel("服务器配置"))
 
-        left_layout.addWidget(QLabel("服务器配置"))
-
-        self._profile_list = QListWidget()
-        self._profile_list.currentRowChanged.connect(self._on_profile_selected)
-        left_layout.addWidget(self._profile_list)
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.setColumnCount(1)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_context_menu)
+        self._tree.itemDoubleClicked.connect(self._on_double_click)
+        self._tree.currentItemChanged.connect(self._on_selection_changed)
+        ll.addWidget(self._tree)
 
         btn_row = QHBoxLayout()
-        self._add_btn = QPushButton("＋ 新建")
-        self._add_btn.clicked.connect(self._add_profile)
-        btn_row.addWidget(self._add_btn)
+        self._add_server_btn = QPushButton("＋ 服务器")
+        self._add_server_btn.clicked.connect(self._add_server)
+        btn_row.addWidget(self._add_server_btn)
 
-        self._edit_btn = QPushButton("编辑")
-        self._edit_btn.setEnabled(False)
-        self._edit_btn.clicked.connect(self._edit_profile)
-        btn_row.addWidget(self._edit_btn)
-
-        self._del_btn = QPushButton("删除")
-        self._del_btn.setEnabled(False)
-        self._del_btn.clicked.connect(self._delete_profile)
-        btn_row.addWidget(self._del_btn)
-
-        left_layout.addLayout(btn_row)
+        self._add_dir_btn = QPushButton("＋ 目录")
+        self._add_dir_btn.setEnabled(False)
+        self._add_dir_btn.clicked.connect(self._add_sync_dir)
+        self._add_dir_btn.setToolTip("先选中一台服务器，再添加同步目录")
+        btn_row.addWidget(self._add_dir_btn)
+        ll.addLayout(btn_row)
         splitter.addWidget(left)
 
-        # Right panel — tabs
+        # ── Right: tabs ────────────────────────────────────────────────────
         right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(4, 0, 0, 0)
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(4, 0, 0, 0)
 
         self._tabs = QTabWidget()
         self._sync_tab = SyncTab(self._config_manager)
         self._log_tab = LogTab()
         self._settings_tab = SettingsTab(self._config_manager)
-
         self._tabs.addTab(self._sync_tab, "同步")
         self._tabs.addTab(self._log_tab, "日志")
         self._tabs.addTab(self._settings_tab, "设置")
-        right_layout.addWidget(self._tabs)
+        rl.addWidget(self._tabs)
         splitter.addWidget(right)
-        splitter.setSizes([200, 600])
+        splitter.setSizes([220, 640])
 
-    # ── Profile list management ────────────────────────────────────────────
+    # ── Tree helpers ───────────────────────────────────────────────────────
 
-    def _refresh_profile_list(self) -> None:
-        self._profile_list.clear()
-        for p in self._config_manager.settings.profiles:
-            item = QListWidgetItem(p.name)
-            item.setData(Qt.ItemDataRole.UserRole, p.id)
-            self._profile_list.addItem(item)
+    def _refresh_tree(self) -> None:
+        expanded = set()
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            if item and item.isExpanded():
+                expanded.add(item.data(0, _ROLE_ID))
 
-    def _on_profile_selected(self, row: int) -> None:
-        has_selection = row >= 0
-        self._edit_btn.setEnabled(has_selection)
-        self._del_btn.setEnabled(has_selection)
-        if has_selection:
-            profile_id = self._profile_list.item(row).data(Qt.ItemDataRole.UserRole)
-            profile = self._config_manager.get_profile(profile_id)
-            self._sync_tab.set_profile(profile)
-        else:
-            self._sync_tab.set_profile(None)
+        self._tree.clear()
+        for profile in self._config_manager.settings.profiles:
+            p_item = self._make_profile_item(profile)
+            for cfg in self._config_manager.get_sync_configs_for_profile(profile.id):
+                c_item = self._make_syncdir_item(cfg)
+                p_item.addChild(c_item)
+            self._tree.addTopLevelItem(p_item)
+            if profile.id in expanded or not expanded:
+                p_item.setExpanded(True)
 
-    def _add_profile(self) -> None:
-        dlg = ProfileDialog(self._config_manager, parent=self)
-        if dlg.exec():
-            self._refresh_profile_list()
-            # Select the newly added profile (last item)
-            self._profile_list.setCurrentRow(self._profile_list.count() - 1)
+    def _make_profile_item(self, profile: ServerProfile) -> QTreeWidgetItem:
+        dot = "●" if profile.enabled else "○"
+        color = _STATUS_COLORS["enabled"] if profile.enabled else _STATUS_COLORS["disabled"]
+        item = QTreeWidgetItem([f"{dot} {profile.name}"])
+        item.setForeground(0, QColor(color))
+        item.setToolTip(0, f"{profile.hostname}:{profile.port}  ({profile.username})"
+                           + ("" if profile.enabled else "  [已禁用]"))
+        item.setData(0, _ROLE_TYPE, _TYPE_PROFILE)
+        item.setData(0, _ROLE_ID, profile.id)
+        return item
 
-    def _edit_profile(self) -> None:
-        row = self._profile_list.currentRow()
-        if row < 0:
+    def _make_syncdir_item(self, cfg: SyncConfig) -> QTreeWidgetItem:
+        dot = "↔" if cfg.sync_mode == "bidirectional" else "→"
+        enabled_dot = "●" if cfg.enabled else "○"
+        label = f"  {enabled_dot} {dot} {cfg.name or cfg.remote_path}"
+        item = QTreeWidgetItem([label])
+        color = _STATUS_COLORS["enabled"] if cfg.enabled else _STATUS_COLORS["disabled"]
+        item.setForeground(0, QColor(color))
+        item.setToolTip(0, f"{cfg.remote_path}  →  {cfg.local_path}")
+        item.setData(0, _ROLE_TYPE, _TYPE_SYNCDIR)
+        item.setData(0, _ROLE_ID, cfg.id)
+        return item
+
+    def _current_profile_id(self) -> str | None:
+        item = self._tree.currentItem()
+        if not item:
+            return None
+        if item.data(0, _ROLE_TYPE) == _TYPE_PROFILE:
+            return item.data(0, _ROLE_ID)
+        parent = item.parent()
+        if parent and parent.data(0, _ROLE_TYPE) == _TYPE_PROFILE:
+            return parent.data(0, _ROLE_ID)
+        return None
+
+    def _current_syncdir_id(self) -> str | None:
+        item = self._tree.currentItem()
+        if item and item.data(0, _ROLE_TYPE) == _TYPE_SYNCDIR:
+            return item.data(0, _ROLE_ID)
+        return None
+
+    # ── Selection ──────────────────────────────────────────────────────────
+
+    def _on_selection_changed(self, current, previous) -> None:
+        if not current:
+            self._add_dir_btn.setEnabled(False)
+            self._sync_tab.set_active(None, None)
             return
-        profile_id = self._profile_list.item(row).data(Qt.ItemDataRole.UserRole)
+
+        item_type = current.data(0, _ROLE_TYPE)
+        if item_type == _TYPE_PROFILE:
+            profile_id = current.data(0, _ROLE_ID)
+            self._add_dir_btn.setEnabled(True)
+            # Show first enabled sync dir of this profile in sync tab
+            cfgs = self._config_manager.get_sync_configs_for_profile(profile_id)
+            active_cfg = next((c for c in cfgs if c.enabled), cfgs[0] if cfgs else None)
+            profile = self._config_manager.get_profile(profile_id)
+            self._sync_tab.set_active(profile, active_cfg)
+        elif item_type == _TYPE_SYNCDIR:
+            syncdir_id = current.data(0, _ROLE_ID)
+            cfg = self._config_manager.get_sync_config(syncdir_id)
+            profile_id = cfg.profile_id if cfg else None
+            profile = self._config_manager.get_profile(profile_id) if profile_id else None
+            self._add_dir_btn.setEnabled(True)
+            self._sync_tab.set_active(profile, cfg)
+
+    # ── Double-click to edit ───────────────────────────────────────────────
+
+    def _on_double_click(self, item: QTreeWidgetItem, column: int) -> None:
+        if item.data(0, _ROLE_TYPE) == _TYPE_PROFILE:
+            self._edit_server(item.data(0, _ROLE_ID))
+        elif item.data(0, _ROLE_TYPE) == _TYPE_SYNCDIR:
+            self._edit_sync_dir(item.data(0, _ROLE_ID))
+
+    # ── Right-click context menu ───────────────────────────────────────────
+
+    def _on_context_menu(self, pos: QPoint) -> None:
+        item = self._tree.itemAt(pos)
+        menu = QMenu(self)
+
+        if item is None:
+            menu.addAction("＋ 新建服务器", self._add_server)
+        elif item.data(0, _ROLE_TYPE) == _TYPE_PROFILE:
+            profile_id = item.data(0, _ROLE_ID)
+            profile = self._config_manager.get_profile(profile_id)
+            menu.addAction("编辑服务器", lambda: self._edit_server(profile_id))
+            menu.addAction("＋ 新建同步目录", lambda: self._add_sync_dir_for(profile_id))
+            menu.addSeparator()
+            if profile and profile.enabled:
+                menu.addAction("禁用服务器", lambda: self._toggle_profile_enabled(profile_id, False))
+            else:
+                menu.addAction("启用服务器", lambda: self._toggle_profile_enabled(profile_id, True))
+            menu.addSeparator()
+            menu.addAction("删除服务器", lambda: self._delete_server(profile_id))
+        elif item.data(0, _ROLE_TYPE) == _TYPE_SYNCDIR:
+            syncdir_id = item.data(0, _ROLE_ID)
+            cfg = self._config_manager.get_sync_config(syncdir_id)
+            menu.addAction("编辑同步目录", lambda: self._edit_sync_dir(syncdir_id))
+            menu.addSeparator()
+            if cfg and cfg.enabled:
+                menu.addAction("禁用此同步目录", lambda: self._toggle_syncdir_enabled(syncdir_id, False))
+            else:
+                menu.addAction("启用此同步目录", lambda: self._toggle_syncdir_enabled(syncdir_id, True))
+            menu.addSeparator()
+            menu.addAction("删除同步目录", lambda: self._delete_sync_dir(syncdir_id))
+
+        menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    # ── Server CRUD ────────────────────────────────────────────────────────
+
+    def _add_server(self) -> None:
+        dlg = ServerDialog(self._config_manager, parent=self)
+        if dlg.exec():
+            self._refresh_tree()
+
+    def _edit_server(self, profile_id: str) -> None:
         profile = self._config_manager.get_profile(profile_id)
         if profile:
-            dlg = ProfileDialog(self._config_manager, profile=profile, parent=self)
+            dlg = ServerDialog(self._config_manager, profile=profile, parent=self)
             if dlg.exec():
-                self._refresh_profile_list()
-                self._profile_list.setCurrentRow(row)
+                self._refresh_tree()
 
-    def _delete_profile(self) -> None:
-        row = self._profile_list.currentRow()
-        if row < 0:
-            return
-        profile_id = self._profile_list.item(row).data(Qt.ItemDataRole.UserRole)
+    def _delete_server(self, profile_id: str) -> None:
         profile = self._config_manager.get_profile(profile_id)
         if not profile:
             return
         reply = QMessageBox.question(
-            self,
-            "确认删除",
-            f'确定要删除配置"{profile.name}"吗？此操作无法撤销。',
+            self, "确认删除",
+            f'确定要删除服务器"{profile.name}"及其所有同步目录吗？',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             self._config_manager.delete_profile(profile_id)
-            self._refresh_profile_list()
+            self._refresh_tree()
 
-    # ── Thread-safe auto-sync trigger (called via signal from scheduler/watcher) ──
-
-    @pyqtSlot(str)
-    def trigger_sync_for_profile(self, profile_id: str) -> None:
-        """Switch SyncTab to the given profile and start sync. Safe to connect from any thread."""
+    def _toggle_profile_enabled(self, profile_id: str, enabled: bool) -> None:
         profile = self._config_manager.get_profile(profile_id)
         if profile:
-            self._sync_tab.set_profile(profile)
+            profile.enabled = enabled
+            self._config_manager.update_profile(profile)
+            self._refresh_tree()
+
+    # ── Sync dir CRUD ──────────────────────────────────────────────────────
+
+    def _add_sync_dir(self) -> None:
+        profile_id = self._current_profile_id()
+        if profile_id:
+            self._add_sync_dir_for(profile_id)
+
+    def _add_sync_dir_for(self, profile_id: str) -> None:
+        profile = self._config_manager.get_profile(profile_id)
+        if profile:
+            dlg = SyncDirDialog(self._config_manager, profile, parent=self)
+            if dlg.exec():
+                self._refresh_tree()
+
+    def _edit_sync_dir(self, syncdir_id: str) -> None:
+        cfg = self._config_manager.get_sync_config(syncdir_id)
+        if not cfg:
+            return
+        profile = self._config_manager.get_profile(cfg.profile_id)
+        if profile:
+            dlg = SyncDirDialog(self._config_manager, profile, sync_config=cfg, parent=self)
+            if dlg.exec():
+                self._refresh_tree()
+
+    def _delete_sync_dir(self, syncdir_id: str) -> None:
+        cfg = self._config_manager.get_sync_config(syncdir_id)
+        if not cfg:
+            return
+        reply = QMessageBox.question(
+            self, "确认删除",
+            f'确定要删除同步目录"{cfg.name}"吗？',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._config_manager.delete_sync_config(syncdir_id)
+            self._refresh_tree()
+
+    def _toggle_syncdir_enabled(self, syncdir_id: str, enabled: bool) -> None:
+        cfg = self._config_manager.get_sync_config(syncdir_id)
+        if cfg:
+            cfg.enabled = enabled
+            self._config_manager.save_sync_config(cfg)
+            self._refresh_tree()
+
+    # ── Thread-safe trigger (scheduler/watcher → GUI thread) ───────────────
+
+    @pyqtSlot(str)
+    def trigger_sync_for_config(self, config_id: str) -> None:
+        cfg = self._config_manager.get_sync_config(config_id)
+        if not cfg or not cfg.enabled:
+            return
+        profile = self._config_manager.get_profile(cfg.profile_id)
+        if profile and profile.enabled:
+            self._sync_tab.set_active(profile, cfg)
             self._sync_tab._start_sync()
 
-    # ── Window close ──────────────────────────────────────────────────────
+    # ── Window ─────────────────────────────────────────────────────────────
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        # Minimise to tray instead of closing if tray is available
         self.hide()
         event.ignore()
 
     def quit(self) -> None:
-        """Actually quit the application (called from tray menu)."""
         self.closed.emit()

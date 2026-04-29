@@ -13,9 +13,10 @@ from codesync.utils.logger import logger
 class SyncWorker(QThread):
     progress = pyqtSignal(int, int, str)   # done, total, current_file
     finished = pyqtSignal(object)           # SyncSummary
-    error = pyqtSignal(str)
+    error    = pyqtSignal(str)
 
-    def __init__(self, profile: ServerProfile, config: SyncConfig, config_manager: ConfigManager):
+    def __init__(self, profile: ServerProfile, config: SyncConfig,
+                 config_manager: ConfigManager):
         super().__init__()
         self._profile = profile
         self._config = config
@@ -28,16 +29,13 @@ class SyncWorker(QThread):
     def run(self) -> None:
         client = SSHClient()
         try:
-            password = self._config_manager.load_credential(self._profile.id, "password")
-            passphrase = self._config_manager.load_credential(self._profile.id, "passphrase")
+            password    = self._config_manager.load_credential(self._profile.id, "password")
+            passphrase  = self._config_manager.load_credential(self._profile.id, "passphrase")
             client.connect(self._profile, password=password, key_passphrase=passphrase)
         except Exception as e:
             logger.error("Connection failed: %s", e)
             self.error.emit(f"连接失败：{e}")
             return
-
-        def _progress(done: int, total: int, filename: str) -> None:
-            self.progress.emit(done, total, filename)
 
         engine = SyncEngine()
         try:
@@ -45,7 +43,7 @@ class SyncWorker(QThread):
                 self._profile,
                 self._config,
                 client,
-                progress_cb=_progress,
+                progress_cb=lambda d, t, f: self.progress.emit(d, t, f),
                 stop_flag=self._stop_event.is_set,
             )
             self.finished.emit(summary)
