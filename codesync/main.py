@@ -84,16 +84,16 @@ class _Bridge(QObject):
 def _register_config_jobs(config_id: str, config_manager: ConfigManager,
                           window, bridges: list, file_watcher: FileWatcher) -> None:
     """Register (or re-register) scheduler/watcher jobs for a single sync config."""
+    # Always clean up first so stale jobs don't run when a config is disabled
+    sched.stop_jobs_for_config(config_id)
+    file_watcher.stop_watch(config_id)
+
     cfg = config_manager.get_sync_config(config_id)
     if not cfg or not cfg.enabled:
         return
     profile = config_manager.get_profile(cfg.profile_id)
     if not profile or not profile.enabled:
         return
-
-    # Remove any existing jobs for this config before re-adding
-    sched.stop_jobs_for_config(cfg.id)
-    file_watcher.stop_watch(cfg.id)
 
     bridge = _Bridge()
     bridge.triggered.connect(window.trigger_sync_for_config)
