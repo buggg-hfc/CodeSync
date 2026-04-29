@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
         self._tree.setColumnCount(1)
+        self._tree.setExpandsOnDoubleClick(False)
         self._tree.setStyleSheet(_TREE_STYLESHEET)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
