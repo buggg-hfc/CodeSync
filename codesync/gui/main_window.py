@@ -31,8 +31,9 @@ _STATUS_COLORS = {
 
 _TREE_STYLESHEET = """
 QTreeWidget {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background: #2b2b2b;
+    color: #e0e0e0;
+    border: 1px solid #555555;
     border-radius: 6px;
     outline: none;
 }
@@ -42,7 +43,7 @@ QTreeWidget::item {
     border-radius: 4px;
 }
 QTreeWidget::item:hover {
-    background: #e9ecef;
+    background: #3c3c3c;
 }
 QTreeWidget::item:selected {
     background: #0d6efd;
@@ -63,7 +64,7 @@ QPushButton {
     font-size: 12px;
 }
 QPushButton:hover { background: #0b5ed7; }
-QPushButton:disabled { background: #adb5bd; color: #dee2e6; }
+QPushButton:disabled { background: #495057; color: #adb5bd; }
 """
 
 _BTN_SECONDARY = """
@@ -76,7 +77,7 @@ QPushButton {
     font-size: 12px;
 }
 QPushButton:hover { background: #5c636a; }
-QPushButton:disabled { background: #adb5bd; color: #dee2e6; }
+QPushButton:disabled { background: #495057; color: #adb5bd; }
 """
 
 
