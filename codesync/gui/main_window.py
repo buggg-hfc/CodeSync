@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QPushButton, QTabWidget, QMessageBox, QSplitter,
     QLabel,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QSize
 from PyQt6.QtGui import QCloseEvent
 
 from codesync.config.config_manager import ConfigManager
@@ -137,12 +137,22 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "确认删除",
-            f"确定要删除配置"{profile.name}"吗？此操作无法撤销。",
+            f'确定要删除配置"{profile.name}"吗？此操作无法撤销。',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             self._config_manager.delete_profile(profile_id)
             self._refresh_profile_list()
+
+    # ── Thread-safe auto-sync trigger (called via signal from scheduler/watcher) ──
+
+    @pyqtSlot(str)
+    def trigger_sync_for_profile(self, profile_id: str) -> None:
+        """Switch SyncTab to the given profile and start sync. Safe to connect from any thread."""
+        profile = self._config_manager.get_profile(profile_id)
+        if profile:
+            self._sync_tab.set_profile(profile)
+            self._sync_tab._start_sync()
 
     # ── Window close ──────────────────────────────────────────────────────
 

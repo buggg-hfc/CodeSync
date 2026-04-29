@@ -3,6 +3,7 @@ import sys
 import argparse
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from codesync.utils.constants import APP_NAME
 from codesync.utils.logger import setup_logging, logger
@@ -50,9 +51,10 @@ def main() -> None:
 
     tray.sync_now_requested.connect(_sync_from_tray)
 
-    # Start auto-sync for enabled interval-based profiles
+    # Start auto-sync for enabled interval-based profiles.
+    # Keep bridges alive for the entire app lifetime.
     file_watcher = FileWatcher()
-    _start_auto_sync(config_manager, file_watcher, window, tray)
+    _auto_sync_bridges = _start_auto_sync(config_manager, file_watcher, window, tray)
 
     start_minimized = args.minimized_to_tray or settings.start_minimized
     if not start_minimized:
@@ -66,10 +68,18 @@ def main() -> None:
     sys.exit(exit_code)
 
 
-def _start_auto_sync(config_manager: ConfigManager, file_watcher: FileWatcher, window, tray) -> None:
-    """Activate auto-sync for all enabled profiles on startup."""
-    from codesync.workers.sync_worker import SyncWorker
-    from PyQt6.QtCore import QMetaObject, Qt
+class _AutoSyncBridge(QObject):
+    """Emits a signal from any thread; Qt delivers it on the GUI thread."""
+    triggered = pyqtSignal(str)   # profile_id
+
+
+def _start_auto_sync(config_manager: ConfigManager, file_watcher: FileWatcher, window, tray) -> list:
+    """Activate auto-sync for all enabled profiles on startup.
+
+    Returns the list of bridge objects — callers must keep a reference so the
+    bridges are not garbage-collected while the app is running.
+    """
+    bridges: list[_AutoSyncBridge] = []
 
     for cfg in config_manager.settings.sync_configs:
         if not cfg.enabled:
@@ -79,27 +89,28 @@ def _start_auto_sync(config_manager: ConfigManager, file_watcher: FileWatcher, w
             continue
 
         if cfg.trigger == "interval":
-            def _callback(p=profile, c=cfg):
-                # Must invoke sync on the main Qt thread
-                QMetaObject.invokeMethod(
-                    window._sync_tab,
-                    "_start_sync",
-                    Qt.ConnectionType.QueuedConnection,
-                )
-                window._sync_tab.set_profile(p)
+            bridge = _AutoSyncBridge()
+            # QueuedConnection is implicit when connecting across threads
+            bridge.triggered.connect(window.trigger_sync_for_profile)
+            bridges.append(bridge)
+
+            def _callback(pid=profile.id, b=bridge):
+                b.triggered.emit(pid)
 
             sched.start_interval(cfg.profile_id, cfg.interval_seconds, _callback)
 
         elif cfg.trigger == "watch":
-            def _on_change(path: str, p=profile, c=cfg):
-                QMetaObject.invokeMethod(
-                    window._sync_tab,
-                    "_start_sync",
-                    Qt.ConnectionType.QueuedConnection,
-                )
+            bridge = _AutoSyncBridge()
+            bridge.triggered.connect(window.trigger_sync_for_profile)
+            bridges.append(bridge)
+
+            def _on_change(path: str, pid=profile.id, b=bridge):
+                b.triggered.emit(pid)
 
             if cfg.local_path:
                 file_watcher.start_watch(cfg.profile_id, cfg.local_path, _on_change)
+
+    return bridges
 
 
 def _shutdown() -> None:
