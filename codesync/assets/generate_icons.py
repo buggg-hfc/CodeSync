@@ -1,24 +1,47 @@
-"""Run once to generate the three tray icon PNGs."""
-import struct, zlib, os
+"""Generate tray icons: sync arrows body + status dot on bottom-right."""
+from PIL import Image, ImageDraw
+import os
 
-def _png_1x1(r, g, b):
-    def chunk(tag, data):
-        c = zlib.crc32(tag + data) & 0xffffffff
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", c)
-    ihdr = struct.pack(">IIBBBBB", 16, 16, 8, 2, 0, 0, 0)
-    raw = b"".join(b"\x00" + bytes([r, g, b] * 16) for _ in range(16))
-    idat = zlib.compress(raw)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+SIZE = 16
+OUT_DIR = os.path.dirname(__file__)
 
-icons = {
-    "idle.png":     (39, 174, 96),    # green
-    "syncing.png":  (41, 128, 185),   # blue
-    "error.png":    (231, 76, 60),    # red
+# Status colors (R, G, B)
+STATUS_COLORS = {
+    "idle":    (39, 174, 96),    # green
+    "syncing": (41, 128, 185),   # blue
+    "error":   (231, 76, 60),    # red
 }
 
-out = os.path.dirname(__file__)
-for name, (r, g, b) in icons.items():
-    with open(os.path.join(out, name), "wb") as f:
-        f.write(_png_1x1(r, g, b))
+def draw_sync_arrows(draw, color=(255,255,255)):
+    """Draw simple double arrow cycle (white lines on 16x16)"""
+    # Left arc arrow (top half counterclockwise)
+    draw.arc([2, 1, 13, 12], start=180, end=360, fill=color, width=1)
+    # Top-left arrow head
+    draw.polygon([(3,3), (1,5), (5,5)], fill=color)
+    # Right arc arrow (bottom half clockwise)
+    draw.arc([-3, 4, 8, 15], start=0, end=180, fill=color, width=1)
+    # Bottom-right arrow head
+    draw.polygon([(12,11), (10,13), (14,13)], fill=color)
 
-print("Icons generated.")
+def create_icon(status_color):
+    """Create complete icon: white sync arrows + status dot bottom-right"""
+    # Transparent background
+    img = Image.new("RGBA", (SIZE, SIZE), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+
+    # 1. Body: white sync arrows
+    draw_sync_arrows(draw, (255,255,255))
+
+    # 2. Bottom-right status dot (radius 3)
+    x0, y0 = SIZE-5, SIZE-5
+    draw.ellipse([x0, y0, x0+5, y0+5], fill=status_color, outline=None)
+
+    return img
+
+# Generate three files
+for state, rgb in STATUS_COLORS.items():
+    icon = create_icon(rgb)
+    filename = f"{state}.png"
+    icon.save(os.path.join(OUT_DIR, filename))
+
+print("Generated idle.png, syncing.png, error.png")
