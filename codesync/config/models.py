@@ -57,4 +57,4 @@ class AppSettings:
     start_minimized: bool = False
     show_notifications: bool = True
     log_level: str = "INFO"
-    font_size: int = 14
+    font_size: int = 10

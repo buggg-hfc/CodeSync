@@ -114,7 +114,7 @@ class ConfigManager:
             start_minimized=data.get("start_minimized", False),
             show_notifications=data.get("show_notifications", True),
             log_level=data.get("log_level", "INFO"),
-            font_size=data.get("font_size", 14),
+            font_size=data.get("font_size", 10),
         )
         return self._settings
 

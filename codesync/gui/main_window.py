@@ -31,10 +31,12 @@ _STATUS_COLORS = {
 
 _TREE_STYLESHEET = """
 QTreeWidget {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background: #2b2b2b;
+    color: #e0e0e0;
+    border: 1px solid #555555;
     border-radius: 6px;
     outline: none;
+    show-decoration-selected: 0;
 }
 QTreeWidget::item {
     height: 26px;
@@ -42,20 +44,25 @@ QTreeWidget::item {
     border-radius: 4px;
 }
 QTreeWidget::item:hover {
-    background: #e9ecef;
+    background: #3c3c3c;
 }
 QTreeWidget::item:selected {
-    background: #0d6efd;
+    background: #274573;
     color: white;
 }
-QTreeWidget::branch {
-    background: transparent;
+/* 折叠状态：向右箭头 */
+QTreeWidget::branch:closed:has-children {
+    image: url(codesync/assets/branch-closed.svg);
+}
+/* 展开状态：向下箭头 */
+QTreeWidget::branch:open:has-children {
+    image: url(codesync/assets/branch-open.svg);
 }
 """
 
 _BTN_PRIMARY = """
 QPushButton {
-    background: #0d6efd;
+    background: #2a5ca8;
     color: white;
     border-radius: 5px;
     padding: 5px 10px;
@@ -63,7 +70,7 @@ QPushButton {
     font-size: 12px;
 }
 QPushButton:hover { background: #0b5ed7; }
-QPushButton:disabled { background: #adb5bd; color: #dee2e6; }
+QPushButton:disabled { background: #495057; color: #adb5bd; }
 """
 
 _BTN_SECONDARY = """
@@ -76,7 +83,7 @@ QPushButton {
     font-size: 12px;
 }
 QPushButton:hover { background: #5c636a; }
-QPushButton:disabled { background: #adb5bd; color: #dee2e6; }
+QPushButton:disabled { background: #495057; color: #adb5bd; }
 """
 
 
@@ -111,7 +118,7 @@ class MainWindow(QMainWindow):
         ll.setSpacing(6)
 
         header_lbl = QLabel("服务器配置")
-        header_lbl.setStyleSheet("font-weight: bold; font-size: 13px; padding: 2px 0 4px 2px;")
+        header_lbl.setStyleSheet("font-weight: bold; font-size: 13px; padding: 2px 0 4px 2px; color: #e0e0e0;")
         ll.addWidget(header_lbl)
 
         self._tree = QTreeWidget()
@@ -263,26 +270,26 @@ class MainWindow(QMainWindow):
         elif item.data(0, _ROLE_TYPE) == _TYPE_PROFILE:
             profile_id = item.data(0, _ROLE_ID)
             profile = self._config_manager.get_profile(profile_id)
-            menu.addAction("编辑服务器", lambda: self._edit_server(profile_id))
+            menu.addAction("编辑", lambda: self._edit_server(profile_id))
             menu.addAction("＋ 新建同步目录", lambda: self._add_sync_dir_for(profile_id))
             menu.addSeparator()
             if profile and profile.enabled:
-                menu.addAction("禁用服务器", lambda: self._toggle_profile_enabled(profile_id, False))
+                menu.addAction("禁用", lambda: self._toggle_profile_enabled(profile_id, False))
             else:
-                menu.addAction("启用服务器", lambda: self._toggle_profile_enabled(profile_id, True))
+                menu.addAction("启用", lambda: self._toggle_profile_enabled(profile_id, True))
             menu.addSeparator()
-            menu.addAction("删除服务器", lambda: self._delete_server(profile_id))
+            menu.addAction("删除", lambda: self._delete_server(profile_id))
         elif item.data(0, _ROLE_TYPE) == _TYPE_SYNCDIR:
             syncdir_id = item.data(0, _ROLE_ID)
             cfg = self._config_manager.get_sync_config(syncdir_id)
-            menu.addAction("编辑同步目录", lambda: self._edit_sync_dir(syncdir_id))
+            menu.addAction("编辑", lambda: self._edit_sync_dir(syncdir_id))
             menu.addSeparator()
             if cfg and cfg.enabled:
-                menu.addAction("禁用此同步目录", lambda: self._toggle_syncdir_enabled(syncdir_id, False))
+                menu.addAction("禁用", lambda: self._toggle_syncdir_enabled(syncdir_id, False))
             else:
-                menu.addAction("启用此同步目录", lambda: self._toggle_syncdir_enabled(syncdir_id, True))
+                menu.addAction("启用", lambda: self._toggle_syncdir_enabled(syncdir_id, True))
             menu.addSeparator()
-            menu.addAction("删除同步目录", lambda: self._delete_sync_dir(syncdir_id))
+            menu.addAction("删除", lambda: self._delete_sync_dir(syncdir_id))
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
